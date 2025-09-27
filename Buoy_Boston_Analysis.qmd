@@ -1,0 +1,168 @@
+---
+title: "Assingment_D"
+author: "George Acostalemus"
+format: html
+editor: visual
+---
+
+```{r, warning = FALSE, message=FALSE}
+library(data.table)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(zoo)
+library(tibble)
+library(readr)
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Define the station ID
+station_id <- "bhbm3"
+
+# Create file root and tail
+file_root <- paste0("https://www.ndbc.noaa.gov/view_text_file.php?filename=", station_id, "h")
+tail <- ".txt.gz&dir=data/historical/stdmet/"
+
+# Function to load a single year's buoy data
+load_buoy_data1 <- function(year) {
+  path <- paste0(file_root, year, tail)
+  
+  message("Loading year: ", year)
+  
+  if (year < 2007) {
+    # For older files, header is on first line and read.table works better
+    header <- scan(path, what = 'character', nlines = 1, quiet = TRUE)
+    
+    buoy <- read.table(path, fill = TRUE, header = TRUE, sep = "")
+    
+    # Some older files are missing mm (minutes) and TIDE columns — add them
+    if (!"mm" %in% names(buoy)) {
+      buoy <- add_column(buoy, mm = NA, .after = "hh")
+    }
+    if (!"TIDE" %in% names(buoy)) {
+      buoy <- add_column(buoy, TIDE = NA, .after = "VIS")
+    }
+    
+  } else {
+    # For newer files, fread is faster and more reliable
+    header <- scan(path, what = 'character', nlines = 1, quiet = TRUE)
+    
+    buoy <- fread(path, header = FALSE, skip = 1, fill = TRUE)
+    
+    # Assign column names from the header
+    setnames(buoy, header)
+  }
+  
+  # Return the data frame
+  return(buoy)
+}
+
+```
+
+```{r}
+load_buoy_data <- function(year) {
+  path <- paste0(file_root, year, tail)
+
+  header <- scan(path, what = 'character', nlines = 1)
+  num_columns <- length(header)  
+
+  if (num_columns == 16) {
+    buoy <- read.table(path, fill = TRUE, header = TRUE, sep = "")
+    buoy <- add_column(buoy, mm = NA, .after = "hh")
+    buoy <- add_column(buoy, TIDE = NA, .after = "VIS")
+
+  } else if (num_columns == 17) {
+    buoy <- read.table(path, fill = TRUE, header = TRUE, sep = "")
+    buoy <- add_column(buoy, TIDE = NA, .after = "VIS")
+
+  } else {
+    buoy <- fread(path, header = FALSE, skip = 1, fill = TRUE)
+    setnames(buoy, header)
+  }
+
+  return(buoy)
+}
+all_data <- lapply(2005:2024, load_buoy_data)
+combined_data <- rbindlist(all_data, fill = TRUE)
+```
+
+```{r}
+# Load and Combine Multiple Years Was getting errors so chatpGPT helped me fixed column namings
+
+# Step 1: Convert year columns to character if they exist
+combined_data <- combined_data %>%
+  mutate(
+    YY = if ("YY" %in% names(.) ) as.character(YY) else NA_character_,
+    `#YY` = if ("#YY" %in% names(.) ) as.character(`#YY`) else NA_character_,
+    YYYY = if ("YYYY" %in% names(.) ) as.character(YYYY) else NA_character_
+  )
+
+# Step 2: Create a single year column using coalesce (prioritize full year YYYY)
+combined_data <- combined_data %>%
+  mutate(Year = coalesce(YYYY, `#YY`, YY))
+
+# Step 3: Convert other date/time columns to character and then numeric safely
+combined_data <- combined_data %>%
+  mutate(
+    MM = as.character(MM),
+    DD = as.character(DD),
+    hh = as.character(hh),
+    mm = if ("mm" %in% names(.)) as.character(mm) else "00"
+  )
+
+# Step 4: Create datetime using lubridate ymd_hm or ymd_h depending on availability of minutes
+combined_data <- combined_data %>%
+  mutate(
+    datetime_str = paste(Year, MM, DD, hh, mm, sep = "-"),
+    datetime = ymd_hm(datetime_str, quiet = TRUE) # use ymd_h if no minutes data
+  )
+
+# Step 5: Remove intermediate columns if desired (optional)
+combined_data <- combined_data %>% select(-YY, -`#YY`, -YYYY, -datetime_str)
+
+# Step 6: Replace flagged missing values (e.g., 99, 999, 9999) with NA across numeric columns
+combined_data <- combined_data %>%
+  mutate(across(where(is.character), as.numeric)) %>%
+  mutate(across(where(is.numeric), ~na_if(., 99))) %>%
+  mutate(across(where(is.numeric), ~na_if(., 999))) %>%
+  mutate(across(where(is.numeric), ~na_if(., 9999)))
+
+```
+
+# Question: How does air temperature change throughout the year? Any trends from 2020–2024? ?
+
+This question focuses on air temperature use real measurements, encourages monthly or seasonal grouping, and spans multiple years.
+
+To visualize this, we will use line plots to see if there's any trends within the air temperature.
+
+```{r}
+# Combine multiple years into one dataset
+temp_data <- combined_data %>%
+  filter(!is.na(datetime),
+         Year >= "2020", Year <= "2024",
+         !is.na(ATMP)) %>%  # assuming air temp is in column "ATMP"
+  mutate(
+    Year = as.integer(Year),
+    Month = month(datetime, label = TRUE)  # Month as factor with labels Jan, Feb...
+  )
+
+# Calculate average monthly temperature by year
+monthly_avg_temp <- temp_data %>%
+  group_by(Year, Month) %>%
+  summarise(Avg_Temp = mean(ATMP, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot
+ggplot(monthly_avg_temp, aes(x = Month, y = Avg_Temp, color = factor(Year), group = Year)) +
+  geom_line(size = 1) +
+  geom_point() +
+  labs(
+    title = "Average Monthly Air Temperature (2020–2024)",
+    x = "Month",
+    y = "Average Air Temperature (°C)",
+    color = "Year"
+  ) +
+  theme_minimal()
+```
+
+Each line represents one year from 2020-2024 The temperature follows a clear season cycle whee the lowest temperature are in January and the highest temperature are in July. Each line is shaped like a bell curve which is consistent year over year. These findings could point to broader long-term environmental changes, such as global warming.
