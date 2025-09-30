@@ -1,0 +1,294 @@
+---
+title: "HOMEWORK D"
+author: "Georg Acostalemus"
+format: 
+   html:
+      embed-resources: true
+editor: visual
+---
+
+## Assignments due on Monday
+
+1.  please submit github URL for the buoy reading assignment
+
+2.  Exercises from R4DS\
+    a - 3.2.5: 1,4,5\
+    b - 3.3.5: 1,4\
+    c - 3.5.7: 1,2,4,6
+
+## Cheat Sheets
+
+[dplyr](https://dplyr.tidyverse.org/)
+
+[tidyr](https://tidyr.tidyverse.org/)
+
+[stringr](https://stringr.tidyverse.org/)
+
+### using a cheatsheet
+
+Examples from dplyr
+
+## R4DS Chapter 3
+
+```{r}
+#| label: R4DS_ch_3-1
+#| warning: true
+#| message: true
+
+library(nycflights13)
+library(tidyverse)
+
+flights_here <- flights
+
+```
+
+### Rows - Manipulate Cases
+
+filter() arrange() distinct()
+
+```{r}
+#| label: rows
+#| warning: false
+#| message: false
+
+flights |> filter(dep_delay > 120)
+
+delay_120 <- flights_here |> filter(dep_delay > 120)
+
+library(magrittr) 
+
+flights_here %<>% filter(dep_delay > 120)
+
+delay_order <- flights_here |> arrange(dep_delay)
+
+
+```
+
+### Columns -- Manipulate Variables
+
+select() mutate()
+
+```{r}
+#| label: columns
+
+ flights |> select(year, month, day)
+ 
+ m1 <- flights |> 
+     mutate(
+      gain = dep_delay - arr_delay,
+      speed = distance / air_time * 60
+      )
+
+```
+
+### Summarize and groups
+
+```{r}
+#| label: groups
+
+flights |> 
+   group_by(month)
+
+flights |> 
+   group_by(month) |>
+   summarise(
+    avg_delay = mean(dep_delay, na.rm = TRUE)
+   )
+
+```
+
+```{r}
+# Problem 1
+# Arrival delays of 2 hours or more
+flights |> 
+  filter(arr_delay >= 2)
+
+# Flights destination to Houston 
+flights |> 
+  filter(dest == "IAH" | dest == "HOU")
+
+# Flights operated by Delta, United or American
+flights |> 
+  filter(carrier == "AA" | carrier == "DL" | carrier == "UA")
+
+# Flights departed in summer
+flights |>
+  filter(month %in% c(7,8,9))
+
+# More than two hours late but didn't leave late
+flights |>
+  filter(arr_delay > 120, dep_delay <= 0)
+
+# Delayed by at least an hour, but made up over 30 minutes in flight
+flights |>
+  filter(dep_delay >= 60, (dep_delay - arr_delay) >30)
+```
+
+3.2.5 #4
+
+```{r}
+# Was there a flight everyday in 2013
+
+flights_per_day <- flights %>% 
+  group_by(year, month, day) %>% 
+  summarise(flight_count = n())
+
+days_with_flights <- nrow(flights_per_day)
+days_with_flights == 365 # Check if there's a flight every day
+
+# We got true, there was a flight everyday in 2013
+```
+
+3.2.5 \# 5
+
+```{r}
+# FLights with the longest and shortest distance
+
+# Longest Distance
+flights |>
+  filter(distance == max(distance, na.rm = TRUE))
+# 4983 miles is the longest distance flight
+
+# Shortest Distance
+flights |>
+  filter(distance == min(distance, na.rm = TRUE))
+# 17 miles is the shortest distance flight
+
+```
+
+3.3.5 \# 1
+
+```{r}
+flights_check <- flights %>%
+  filter(!is.na(dep_time) & !is.na(sched_dep_time)) %>%
+  mutate(
+    sched_dep_mins = (sched_dep_time %/% 100) * 60 + (sched_dep_time %% 100),
+    dep_mins = (dep_time %/% 100) * 60 + (dep_time %% 100),
+    calculated_delay = dep_mins - sched_dep_mins,
+    delay_diff = dep_delay - calculated_delay
+  ) %>%
+  filter(delay_diff != 0)
+
+# View rows where the calculated delay doesn't match dep_delay
+flights_check
+
+# Code was made with chatBot 
+# Explanation below
+```
+
+Here we subtracted the actual time departure minus the scheduled time departure. If the difference in delay is 0 in all or most cases then the relationship is holding well.
+
+3.3.5 \# 4
+
+The any function is used when selecting columns from a data frame. With the vector variables \<- c("year", "month", "day", "dep_delay", "arr_delay") because if one of the columns doesn't exist in our data then we would usually get an error. With any_of function it'll select any columns that are present and skips the missing ones, exceuting the code line by line. Here is the code to further prove this.
+
+```{r}
+vector <- c("year", "month", "day", "nonexisttent_column")
+
+flights |>
+  select(any_of(vector))
+# You will see three out the four columns. year, month and day
+```
+
+3.5.7 \# 1
+
+```{r}
+# Calculate the average arrival day per carrier
+carrier_delays <- flights %>%
+  group_by(carrier) %>%
+  summarise(
+    avg_arr_delay = mean(arr_delay, na.rm = TRUE),
+    avg_dep_delay = mean(dep_delay, na.rm = TRUE),
+    n_flights = n()
+  ) %>%
+  arrange(desc(avg_arr_delay))
+
+carrier_delays
+
+# The highest avg_arr_delay is the worst. 
+# In this case Frontier (F9) airlines has the worst average delays
+```
+
+3.5.7 #2
+
+```{r}
+# Flights that are most delayed upon departure from each destination
+max_dep_delays <- flights %>% 
+  group_by(dest) %>% 
+  summarise(max_dep_delays = max(dep_delay, na.rm = TRUE))
+
+most_delayed_flights <- flights %>%
+  inner_join(max_dep_delays, by = "dest") %>%
+  filter(dep_delay == max_dep_delays) %>%
+  arrange(desc(dep_delay))  # optional: see the worst at top
+# Chat bot
+
+
+
+most_delayed_flights %>%
+  select(dest, year, month, day, carrier, flight, origin, dep_delay)
+# It seems that JFK airport in NYC has long departure delays.
+```
+
+3.5.7 #4
+
+Using a negative n in slice_min() will drop the n largest or n smallest values rather than running the code.
+
+```{r}
+# Example with a different datset
+df <- tibble(x = c(1, 3, 5, 7, 9))
+
+# Negative n: drop 2 smallest values
+slice_min(df, x, n = -2)
+# The highest two numbers get dropped
+
+```
+
+3.5.7 \# 6
+
+```{r}
+df <- tibble(
+  x = 1:5,
+  y = c("a", "b", "a", "a", "b"),
+  z = c("K", "K", "L", "L", "K")
+)
+
+# a
+df |> # group_by groups y columns treat rows with the same y value
+  group_by(y)
+
+# b
+df |> 
+  arrange(y) # Sort the rows by column y
+
+# c
+df |>
+  group_by(y) |>
+  summarize(mean_x = mean(x)) # Gets the mean of x with every y group
+# First it groups by y then takes the average of x in each grou
+
+# d
+df |>
+  group_by(y, z) |>
+  summarize(mean_x = mean(x)) # We get one row for each y and z pair
+# This code keeps the first group of y unless you telll it otherwise.
+
+# e
+df |>
+  group_by(y, z) |>
+  summarize(mean_x = mean(x), .groups = "drop") # almost similar to part d
+
+# .groups = "drop"tells dplyr to remove al grouping after summarise. unlike part d
+# where it was still grouped by y
+
+df |>
+  group_by(y, z) |>
+  summarize(mean_x = mean(x)) # It will summarize the average of x
+
+df |>
+  group_by(y, z) |>
+  mutate(mean_x = mean(x)) # it will mutate the average of x into a new column
+
+# The difference is summarize collaspses each group to one row
+# Mutate keeps original rows and adds summary value in a new column.
+```
